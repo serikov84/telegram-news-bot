@@ -6,72 +6,85 @@ from telegram.ext import ContextTypes
 import config
 from bot import scheduler
 from publishers.telegram_publisher import CHANNEL_KEY, publish as publish_telegram
-from tracking.repository import PendingRepo, PublishedRepo
+from tracking.repository import PublishedRepo
 
 log = logging.getLogger(__name__)
 
 
-def approval_keyboard(item_id):
-    return InlineKeyboardMarkup(
-        [
-            [InlineKeyboardButton("✏️ Редактировать", callback_data=f"edit_{item_id}")],
-            [
-                InlineKeyboardButton("✅ Опубликовать", callback_data=f"approve_{item_id}"),
-                InlineKeyboardButton("❌ Пропустить", callback_data=f"skip_{item_id}"),
-            ],
-        ]
-    )
-
-
 async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "🤖 Добро пожаловать! Я буду присылать вам материалы на одобрение."
+        "🤖 Добро пожаловать! Публикую материалы в канал автоматически. "
+        "После каждой публикации присылаю вам копию с кнопкой 🗑️, чтобы можно было "
+        "быстро удалить пост из канала, если что-то пошло не так."
     )
+
+
+def undo_keyboard(publish_id):
+    return InlineKeyboardMarkup(
+        [[InlineKeyboardButton("🗑️ Удалить из канала", callback_data=f"undo_{publish_id}")]]
+    )
+
+
+async def notify_published(bot: Bot, text, publish_id):
+    """Теневое уведомление апруверу после автопубликации — страховка на случай неудачного текста."""
+    notice = f"🤖 Опубликовано автоматически:\n\n{text[:900]}"
+    try:
+        await bot.send_message(
+            chat_id=config.USER_ID, text=notice, reply_markup=undo_keyboard(publish_id)
+        )
+    except Exception as e:
+        log.error(f"Не удалось отправить теневое уведомление: {e}")
+
+
+async def publish_and_notify(bot: Bot, item, text, image_url):
+    """Публикует материал в канал, логирует в tracking и шлёт теневое уведомление апруверу."""
+    try:
+        message = await publish_telegram(bot, text, image_url, item.url)
+    except Exception as e:
+        log.error(f"Ошибка публикации: {e}")
+        return False
+
+    publish_id = PublishedRepo.add(
+        source_type=item.source_type,
+        source_url=item.url,
+        channel=CHANNEL_KEY,
+        title=item.title,
+        text=text,
+        image_url=image_url,
+        channel_message_id=message.message_id,
+    )
+
+    await notify_published(bot, text, publish_id)
+    return True
 
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка кнопок одобрения/пропуска и расписания"""
+    """Обработка кнопок: отмена публикации и управление расписанием"""
     query = update.callback_query
     await query.answer()
     data = query.data
 
-    if data.startswith("edit_"):
-        item_id = data.split("_", 1)[1]
-        item = PendingRepo.get(item_id)
-        if item:
-            context.user_data["editing_item_id"] = item_id
-            await query.edit_message_text(f"Отправьте новый текст:\n\n{item['text']}")
-        return
-
-    if data.startswith("approve_"):
-        item_id = data.split("_", 1)[1]
-        item = PendingRepo.get(item_id)
-        if not item:
+    if data.startswith("undo_"):
+        publish_id = int(data.split("_", 1)[1])
+        record = PublishedRepo.get(publish_id)
+        if not record:
+            await query.edit_message_text("Пост не найден.")
+            return
+        if record["deleted_at"]:
+            await query.edit_message_text("Пост уже удалён из канала.")
             return
 
         bot = Bot(token=config.TELEGRAM_BOT_TOKEN)
         try:
-            await publish_telegram(bot, item["text"], item["image_url"], item["source_url"])
-            PublishedRepo.add(
-                source_type=item["source_type"],
-                source_url=item["source_url"],
-                channel=CHANNEL_KEY,
-                title=item["title"],
-                text=item["text"],
-                image_url=item["image_url"],
+            await bot.delete_message(
+                chat_id=config.TELEGRAM_CHANNEL, message_id=record["channel_message_id"]
             )
-            PendingRepo.delete(item_id)
-            await query.edit_message_text("✅ Опубликовано в канал!")
-            log.info(f"Published: {item['title'][:60]}")
+            PublishedRepo.mark_deleted(publish_id)
+            await query.edit_message_text("🗑️ Пост удалён из канала.")
+            log.info(f"Undo: {record['title'][:60] if record['title'] else publish_id}")
         except Exception as e:
-            log.error(f"Error publishing: {e}")
-            await query.edit_message_text(f"❌ Ошибка: {e}")
-        return
-
-    if data.startswith("skip_"):
-        item_id = data.split("_", 1)[1]
-        PendingRepo.delete(item_id)
-        await query.edit_message_text("⏭️ Пропущено")
+            log.error(f"Не удалось удалить пост: {e}")
+            await query.edit_message_text(f"❌ Ошибка удаления: {e}")
         return
 
     if data == "sched_show":
@@ -124,23 +137,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         scheduler.save_schedule()
         await query.edit_message_text(f"⏰ Расписание установлено:\n{', '.join(new_times)}")
         return
-
-
-async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка редактирования текста"""
-    item_id = context.user_data.get("editing_item_id")
-    if not item_id:
-        return
-    item = PendingRepo.get(item_id)
-    if not item:
-        return
-
-    new_text = update.message.text
-    PendingRepo.update_text(item_id, new_text)
-
-    await update.message.reply_text(
-        "✏️ Текст обновлён! Опубликовать?", reply_markup=approval_keyboard(item_id)
-    )
 
 
 async def schedule_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):

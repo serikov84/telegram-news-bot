@@ -1,15 +1,9 @@
 import asyncio
 import logging
-import time
+from datetime import datetime, timezone
 
 from telegram import Bot
-from telegram.ext import (
-    Application,
-    CallbackQueryHandler,
-    CommandHandler,
-    MessageHandler,
-    filters,
-)
+from telegram.ext import Application, CallbackQueryHandler, CommandHandler
 
 import config
 from bot import handlers, scheduler
@@ -18,7 +12,7 @@ from processing import rewrite as rewriter
 from publishers.telegram_publisher import CHANNEL_KEY
 from sources import cases_source, newsapi_source, rss_source, telethon_source
 from tracking.db import init_db
-from tracking.repository import PendingRepo, PublishedRepo
+from tracking.repository import PublishedRepo
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger(__name__)
@@ -34,49 +28,8 @@ async def fetch_all_items():
     return items
 
 
-async def send_for_approval(bot: Bot, item, text):
-    """Отправляет черновик апруверу (USER_ID) с кнопками Edit/Approve/Skip."""
-    item_id = str(int(time.time() * 1_000_000) % 1_000_000)
-    image_url = item.image_url or image_gen.generate_image(item.title)
-    PendingRepo.add(item_id, item, text)
-
-    if item.url.startswith("http"):
-        message_text = (
-            f'{text[:900]}\n\n📰 Источник: {item.source_name}\n'
-            f'🔗 <a href="{item.url}">Оригинал</a>'
-        )
-    else:
-        message_text = f"{text[:900]}\n\n📁 Источник: {item.source_name}"
-
-    keyboard = handlers.approval_keyboard(item_id)
-
-    try:
-        if image_url:
-            await bot.send_photo(
-                chat_id=config.USER_ID,
-                photo=image_url,
-                caption=message_text,
-                parse_mode="HTML",
-            )
-            await bot.send_message(
-                chat_id=config.USER_ID, text="Выберите действие:", reply_markup=keyboard
-            )
-        else:
-            await bot.send_message(
-                chat_id=config.USER_ID,
-                text=message_text,
-                parse_mode="HTML",
-                reply_markup=keyboard,
-            )
-        return True
-    except Exception as e:
-        log.error(f"Ошибка отправки: {e}")
-        PendingRepo.delete(item_id)
-        return False
-
-
 async def run_pipeline(bot: Bot):
-    """Источники → рерайт через Claude → отправка на одобрение."""
+    """Источники → рерайт через Claude → автопубликация в канал (+ теневое уведомление)."""
     log.info("📰 Проверка источников...")
     items = await fetch_all_items()
 
@@ -85,10 +38,16 @@ async def run_pipeline(bot: Bot):
         return
 
     already_published = PublishedRepo.published_urls(CHANNEL_KEY)
+    today_start = datetime.now(timezone.utc).strftime("%Y-%m-%dT00:00:00")
+    published_today = PublishedRepo.count_since(CHANNEL_KEY, today_start)
+
     sent_count = 0
 
     for item in items:
         if sent_count >= config.POSTS_PER_RUN:
+            break
+        if published_today + sent_count >= config.DAILY_PUBLISH_LIMIT:
+            log.info(f"Достигнут дневной лимит публикаций ({config.DAILY_PUBLISH_LIMIT})")
             break
         if item.url in already_published:
             continue
@@ -99,12 +58,14 @@ async def run_pipeline(bot: Bot):
             log.warning("Не удалось обработать материал")
             continue
 
-        if await send_for_approval(bot, item, text):
+        image_url = item.image_url or image_gen.generate_image(item.title)
+
+        if await handlers.publish_and_notify(bot, item, text, image_url):
             sent_count += 1
-            log.info(f"✅ Отправлено для одобрения: {item.title[:60]}")
+            log.info(f"✅ Опубликовано: {item.title[:60]}")
             await asyncio.sleep(2)
 
-    log.info(f"✅ Готово! Отправлено {sent_count} материалов для одобрения")
+    log.info(f"✅ Готово! Опубликовано {sent_count} материалов")
 
 
 async def main():
@@ -115,9 +76,6 @@ async def main():
     app.add_handler(CommandHandler("start", handlers.start_cmd))
     app.add_handler(CommandHandler("schedule", handlers.schedule_cmd))
     app.add_handler(CallbackQueryHandler(handlers.button_handler))
-    app.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.handle_text_message)
-    )
 
     async with app:
         await app.start()

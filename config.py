@@ -46,6 +46,7 @@ BROAD_QUERIES = _topics.get("broad", {}).get("queries", [])
 NICHE_QUERIES = _topics.get("niche", {}).get("queries", [])
 POSTS_PER_RUN = _topics.get("posts_per_run", 3)
 NEWS_LOOKBACK_HOURS = _topics.get("lookback_hours", 24)
+DAILY_PUBLISH_LIMIT = _topics.get("daily_publish_limit", 8)
 
 _feeds = _load_yaml("feeds.yaml", {})
 RSS_FEEDS = _feeds.get("feeds", []) or []

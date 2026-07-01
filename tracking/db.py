@@ -4,17 +4,6 @@ from contextlib import contextmanager
 import config
 
 SCHEMA = """
-CREATE TABLE IF NOT EXISTS pending (
-    id TEXT PRIMARY KEY,
-    source_type TEXT NOT NULL,
-    source_url TEXT,
-    title TEXT,
-    text TEXT NOT NULL,
-    image_url TEXT,
-    raw_json TEXT,
-    created_at TEXT NOT NULL
-);
-
 CREATE TABLE IF NOT EXISTS published (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     source_type TEXT NOT NULL,
@@ -23,7 +12,9 @@ CREATE TABLE IF NOT EXISTS published (
     title TEXT,
     text TEXT NOT NULL,
     image_url TEXT,
+    channel_message_id INTEGER,
     published_at TEXT NOT NULL,
+    deleted_at TEXT,
     UNIQUE(source_url, channel)
 );
 """

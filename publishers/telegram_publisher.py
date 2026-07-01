@@ -16,17 +16,16 @@ async def publish(bot: Bot, text, image_url, source_url):
 
     if image_url:
         try:
-            await bot.send_photo(
+            return await bot.send_photo(
                 chat_id=config.TELEGRAM_CHANNEL,
                 photo=image_url,
                 caption=post_text[:1024],
                 parse_mode="HTML",
             )
-            return
         except Exception as e:
             log.warning(f"Не удалось отправить фото, отправляю текстом: {e}")
 
-    await bot.send_message(
+    return await bot.send_message(
         chat_id=config.TELEGRAM_CHANNEL,
         text=post_text[:4096],
         parse_mode="HTML",
