@@ -1,6 +1,8 @@
 python-telegram-bot
 requests
-schedule
 python-dotenv
 anthropic
 replicate
+feedparser
+telethon
+pyyaml

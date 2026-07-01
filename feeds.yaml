@@ -1,0 +1,11 @@
+# Список RSS-лент. category: broad | niche — сохраняется вместе с материалом
+# для будущей аналитики, на обработку контента сейчас не влияет.
+#
+# Пример:
+# feeds:
+#   - url: "https://example.com/rss.xml"
+#     category: niche
+#   - url: "https://another-example.com/feed"
+#     category: broad
+
+feeds: []

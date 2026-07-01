@@ -1,0 +1,30 @@
+# Тематика канала: гибрид — широкая рамка предпринимательства (Россия + ЮАР)
+# с фокусом на узкую экспертную нишу (AI/IT/налоги/таможня).
+# Меняйте списки запросов ниже без правки кода.
+
+broad:
+  label: "Предпринимательство Россия + ЮАР"
+  queries:
+    - "business South Africa Russia"
+    - "cross-border trade Russia Africa"
+    - "entrepreneurship emerging markets"
+    - "South Africa startup investment"
+    - "relocation business Russia"
+
+niche:
+  label: "AI/IT/налоги/таможня (специализация)"
+  queries:
+    - "artificial intelligence AI"
+    - "AI startups"
+    - "fintech financial technology"
+    - "cryptocurrency blockchain"
+    - "digital government services"
+    - "tax technology"
+    - "customs trade compliance"
+    - "AI investments venture capital"
+
+# Сколько постов отправлять на одобрение за один запуск
+posts_per_run: 3
+
+# За сколько часов назад искать свежие материалы (NewsAPI, RSS)
+lookback_hours: 24
