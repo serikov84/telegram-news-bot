@@ -115,6 +115,42 @@ TELETHON_CHANNELS=@channel1,@channel2
 Пока сессии нет или `TELETHON_ENABLED=false` — источник просто пропускается,
 без ошибок.
 
+## LinkedIn (Фаза 3, в подготовке)
+
+Приложение в LinkedIn Developer Portal создано, продукты одобрены. Осталось
+получить access/refresh-токены — это делается **локально, на своей машине**
+(нужен логин в браузере, в облачной сессии это невозможно):
+
+1. На вкладке **Auth** приложения возьмите `Client ID`/`Client Secret`, впишите
+   в `.env` (`LINKEDIN_CLIENT_ID`, `LINKEDIN_CLIENT_SECRET`), и добавьте туда же
+   Redirect URL `http://localhost:8080/callback` — один в один, включая порт
+2. Токен для личного профиля:
+   ```
+   python scripts/linkedin_auth.py --scope "openid profile email w_member_social"
+   ```
+3. Токен для страницы компании **aiu** (тот же логин, если вы админ страницы):
+   ```
+   python scripts/linkedin_auth.py --scope "w_organization_social rw_organization_admin"
+   ```
+   Точные названия scope сверьте с тем, что показывает вкладка Auth для ваших
+   одобренных продуктов — они могут отличаться от примера.
+4. Скопируйте `access_token`/`refresh_token` из вывода скрипта в `.env`
+   (`LINKEDIN_PERSONAL_*` / `LINKEDIN_COMPANY_*`)
+5. Узнайте Organization URN страницы aiu (нужен для публикации от её имени) —
+   он виден в адресной строке в админке страницы, либо запросом с токеном
+   страницы:
+   ```
+   curl -H "Authorization: Bearer $LINKEDIN_COMPANY_ACCESS_TOKEN" \
+        -H "LinkedIn-Version: 202405" \
+        -H "X-Restli-Protocol-Version: 2.0.0" \
+        "https://api.linkedin.com/rest/organizationAcls?q=roleAssignee&role=ADMINISTRATOR&state=APPROVED"
+   ```
+   Сохраните как `LINKEDIN_ORGANIZATION_URN`.
+
+После заполнения `.env` — публишер `publishers/linkedin_publisher.py` и разделение
+контента по тону (личный — экспертиза/Sport Hub, aiu — IT-новости) ещё предстоит
+реализовать.
+
 ## Управление ботом
 
 - `/start` — приветствие
